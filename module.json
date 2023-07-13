@@ -1,5 +1,6 @@
 {
-  "title": "Module Maker",
+  "name": "foundry-vtt-module-maker",
+  "title": "Foundry VTT Module Maker",
   "description": "Imports scene elements from dd2vtt files and creates a module out of them.",
   "version": "1.0.0",
   "authors": [
