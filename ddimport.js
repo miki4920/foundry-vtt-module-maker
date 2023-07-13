@@ -16,8 +16,6 @@ Hooks.on("init", () => {
     scope: "world",
     config: false,
     default: {
-      source: "data",
-      bucket: "",
       path: "worlds/" + game.world.id,
       offset: 0.0,
       fidelity: 3,
@@ -47,7 +45,7 @@ class DDImporter extends FormApplication {
   static get defaultOptions() {
     const options = super.defaultOptions;
     options.id = "dd-importer";
-    options.template = "modules/dd-import/importer.html"
+    options.template = "modules/foundry-vtt-module-maker/importer.html"
     options.classes.push("dd-importer");
     options.resizable = false;
     options.height = "auto";
@@ -61,21 +59,6 @@ class DDImporter extends FormApplication {
   async getData() {
     let data = await super.getData();
     let settings = game.settings.get("dd-import", "importSettings")
-
-    data.dataSources = {
-      data: "User Data",
-      s3: "S3"
-    }
-    data.defaultSource = settings.source || "data";
-
-    data.s3Bucket = settings.bucket || "";
-    try {
-      data.bucketOptions = (await FilePicker.browse("s3", "")).dirs;
-    }
-    catch (e)
-    {
-      console.log("No S3 buckets found")
-    }
     data.path = settings.path || "";
     data.offset = settings.offset || 0;
     data.padding = settings.padding || 0.25
@@ -100,8 +83,7 @@ class DDImporter extends FormApplication {
       let fidelity = parseInt(formData["fidelity"])
       let offset = parseFloat(formData["offset"])
       let padding = parseFloat(formData["padding"])
-      let source = formData["source"]
-      let bucket = formData["bucket"]
+      let source = "data"
       let path = formData["path"]
       let filecount = formData["filecount"]
       let mode = formData["multi-mode"]
@@ -111,9 +93,6 @@ class DDImporter extends FormApplication {
       let useCustomPixelsPerGrid = formData["use-custom-gridPPI"]
       let customPixelsPerGrid = formData["customGridPPI"] * 1
       var firstFileName
-
-      if ((!bucket) && source == "s3")
-        return ui.notifications.error("Bucket required for S3 upload")
 
       let files = []
       var fileName = 'combined'
@@ -239,7 +218,7 @@ class DDImporter extends FormApplication {
       var p = new Promise(function (resolve) {
         thecanvas.toBlob(function (blob) {
           blob.arrayBuffer().then(bfr => {
-            DDImporter.uploadFile(bfr, fileName, path, source, image_type, bucket)
+            DDImporter.uploadFile(bfr, fileName, path, source, image_type)
               .then(function () {
                 resolve()
               })
@@ -305,11 +284,10 @@ class DDImporter extends FormApplication {
       ui.notifications.notify("Upload still in progress, please wait")
       await p
       ui.notifications.notify("Creating scene")
-      DDImporter.DDImport(aggregated, sceneName, fileName, path, fidelity, offset, padding, image_type, bucket, game.data.files.s3?.endpoint, source, pixelsPerGrid)
+      DDImporter.DDImport(aggregated, sceneName, fileName, path, fidelity, offset, padding, image_type, source, pixelsPerGrid)
 
       game.settings.set("dd-import", "importSettings", {
         source: source,
-        bucket: bucket,
         path: path,
         offset: offset,
         padding: padding,
@@ -329,13 +307,11 @@ class DDImporter extends FormApplication {
 
     DDImporter.checkPath(html)
     DDImporter.checkFidelity(html)
-    DDImporter.checkSource(html)
     this.setRangeValue(html)
 
 
     html.find(".path-input").keyup(ev => DDImporter.checkPath(html))
     html.find(".fidelity-input").change(ev => DDImporter.checkFidelity(html))
-    html.find(".source-selector").change(ev => DDImporter.checkSource(html))
     html.find(".padding-input").change(ev => this.setRangeValue(html))
 
     html.find(".add-file").click(async ev => {
@@ -388,18 +364,6 @@ class DDImporter extends FormApplication {
       html.find(".warning.fidelity")[0].style.display = "none"
 
   }
-
-  static checkSource(html) {
-    let sourceValue = $("[name='source']")[0].value
-    if (sourceValue == "s3") {
-      html.find(".s3-section")[0].style.display = ""
-    }
-    else {
-      html.find(".s3-section")[0].style.display = "none"
-    }
-
-  }
-
 
   static DecodeImage(file) {
     var byteString = atob(file.image);
@@ -462,20 +426,15 @@ class DDImporter extends FormApplication {
     });
   }
 
-  static async uploadFile(file, name, path, source, extension, bucket) {
+  static async uploadFile(file, name, path, source, extension) {
     let uploadFile = new File([file], name + "." + extension, { type: 'image/' + extension });
-    await FilePicker.upload(source, path, uploadFile, { bucket: bucket })
+    await FilePicker.upload(source, path, uploadFile)
   }
 
-  static async DDImport(file, sceneName, fileName, path, fidelity, offset, padding, extension, bucket, endpoint, source, pixelsPerGrid) {
+  static async DDImport(file, sceneName, fileName, path, fidelity, offset, padding, extension, source, pixelsPerGrid) {
     if (path && path[path.length - 1] != "/")
       path = path + "/"
     let imagePath = path + fileName + "." + extension;
-    if (source === "s3") {
-      if (imagePath[0] == "/")
-        imagePath = imagePath.slice(1)
-      imagePath = endpoint.protocol + '//' + bucket + '.' + endpoint.host + endpoint.path + imagePath;
-    }
     let newScene = new Scene({
       name: sceneName,
       grid: pixelsPerGrid,
