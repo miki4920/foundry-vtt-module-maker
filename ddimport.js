@@ -22,7 +22,6 @@ Hooks.on("init", () => {
       offset: 0.0,
       fidelity: 3,
       multiImageMode: "g",
-      webpConversion: true,
       wallsAroundFiles: true,
       useCustomPixelsPerGrid: false,
       defaultCustomPixelsPerGrid: 100,
@@ -87,7 +86,6 @@ class DDImporter extends FormApplication {
       "x": "Horizontal",
     }
     data.multiImageMode = settings.multiImageMode || "g";
-    data.webpConversion = settings.webpConversion;
     data.wallsAroundFiles = settings.wallsAroundFiles;
 
     data.useCustomPixelsPerGrid = settings.useCustomPixelsPerGrid;
@@ -107,7 +105,6 @@ class DDImporter extends FormApplication {
       let path = formData["path"]
       let filecount = formData["filecount"]
       let mode = formData["multi-mode"]
-      let toWebp = formData["convert-to-webp"]
       let objectWalls = formData["object-walls"]
       let wallsAroundFiles = formData["walls-around-files"]
       let imageFileName = formData["imageFileName"]
@@ -238,9 +235,6 @@ class DDImporter extends FormApplication {
         await DDImporter.image2Canvas(mycanvas, f, image_type, size.x, size.y)
       }
       ui.notifications.notify("Uploading image ....")
-      if (toWebp) {
-        image_type = 'webp';
-      }
 
       var p = new Promise(function (resolve) {
         thecanvas.toBlob(function (blob) {
@@ -321,7 +315,6 @@ class DDImporter extends FormApplication {
         padding: padding,
         fidelity: fidelity,
         multiImageMode: mode,
-        webpConversion: toWebp,
         wallsAroundFiles: wallsAroundFiles,
       });
     }
@@ -441,13 +434,10 @@ class DDImporter extends FormApplication {
 
   static getImageType(bytes) {
     let magic = bytes.substr(0, 4);
-    console.log(magic);
-    console.log(magic.charCodeAt(0));
     if (magic == "\u0089PNG") {
       return 'png'
-    } else if (magic == "RIFF") {
-      return 'webp';
-    } else if (magic == "\u00ff\u00d8\u00ff\u00e0") {
+    } 
+	else if (magic == "\u00ff\u00d8\u00ff\u00e0") {
       return 'jpeg';
     }
     return 'png';
