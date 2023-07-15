@@ -314,19 +314,6 @@ class DDImporter extends FormApplication {
     html.find(".fidelity-input").change(ev => DDImporter.checkFidelity(html))
     html.find(".padding-input").change(ev => this.setRangeValue(html))
 
-    html.find(".add-file").click(async ev => {
-      var newfile = document.createElement("input");
-      let counter = html.find('[name="filecount"]')[0]
-      newfile.setAttribute("class", "file-input")
-      newfile.setAttribute("type", "file")
-      newfile.setAttribute("accept", ".dd2vtt,.df2vtt,.uvtt")
-      newfile.setAttribute("name", "file" + counter.value)
-      counter.value = parseInt(counter.value) + 1
-      let files = html.find("#dd-upload-files")[0]
-      files.insertBefore(newfile, counter)
-      html.find(".multi-mode-section")[0].style.display = ""
-    })
-
     html.find(".use-custom-gridPPI").click(async ev => {
       if (html.find('[name="use-custom-gridPPI"]')[0].checked) {
         html.find(".custom-gridPPI-section")[0].style.display = ""
