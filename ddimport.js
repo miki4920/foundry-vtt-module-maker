@@ -1,6 +1,6 @@
 Hooks.on("renderSidebarTab", async (app, html) => {
   if (app instanceof SceneDirectory) {
-    let button = $("<button class='import-dd'><i class='fas fa-file-import'></i> Universal Battlemap Import</button>")
+    let button = $("<button class='import-dd'><i class='fas fa-file-import'></i> Module Maker</button>")
 
     button.click(function () {
       new DDImporter().render(true);
@@ -17,22 +17,11 @@ Hooks.on("init", () => {
     config: false,
     default: {
       path: "worlds/" + game.world.id,
-      offset: 0.0,
       fidelity: 3,
-      multiImageMode: "g",
       wallsAroundFiles: true,
       useCustomPixelsPerGrid: false,
       defaultCustomPixelsPerGrid: 100,
     }
-  })
-
-  game.settings.register("dd-import", "openableWindows", {
-    name: "Openable Windows",
-    hint: "Should windows be openable? Note that you can make portals import as windows by unchecking 'block light' in Dungeondraft",
-    scope: "world",
-    config: true,
-    type: Boolean,
-    default: false
   })
 })
 
@@ -44,257 +33,163 @@ class DDImporter extends FormApplication {
 
   static get defaultOptions() {
     const options = super.defaultOptions;
-    options.id = "dd-importer";
+    options.id = "module-maker";
     options.template = "modules/foundry-vtt-module-maker/importer.html"
-    options.classes.push("dd-importer");
+    options.classes.push("module-maker");
     options.resizable = false;
     options.height = "auto";
     options.width = 400;
     options.minimizable = true;
-    options.title = "Universal Battlemap Importer"
+    options.title = "Module Maker"
     return options;
   }
-
 
   async getData() {
     let data = await super.getData();
     let settings = game.settings.get("dd-import", "importSettings")
     data.path = settings.path || "";
-    data.offset = settings.offset || 0;
-    data.padding = settings.padding || 0.25
-
-    data.multiImageModes = {
-      "g": "Grid",
-      "y": "Vertical",
-      "x": "Horizontal",
-    }
-    data.multiImageMode = settings.multiImageMode || "g";
     data.wallsAroundFiles = settings.wallsAroundFiles;
-
     data.useCustomPixelsPerGrid = settings.useCustomPixelsPerGrid;
     data.defaultCustomPixelsPerGrid = settings.defaultCustomPixelsPerGrid || 100;
     return data
   }
 
+  getDirectoryName(name) {
+    return decodeURI(name.split("/").at(-1))
+  }
 
   async _updateObject(event, formData) {
     try {
-      let sceneName = formData["sceneName"]
+      let directory = formData["directory"]
       let fidelity = parseInt(formData["fidelity"])
-      let offset = parseFloat(formData["offset"])
-      let padding = parseFloat(formData["padding"])
       let source = "data"
       let path = formData["path"]
-      let filecount = formData["filecount"]
-      let mode = formData["multi-mode"]
       let objectWalls = formData["object-walls"]
-      let wallsAroundFiles = formData["walls-around-files"]
-      let imageFileName = formData["imageFileName"]
-      let useCustomPixelsPerGrid = formData["use-custom-gridPPI"]
-      let customPixelsPerGrid = formData["customGridPPI"] * 1
-      var firstFileName
+      let pixelsPerGrid = formData["customGridPPI"] * 1
 
-      let files = []
-      var fileName = 'combined'
-      for (var i = 0; i < filecount; i++) {
-        let fe = this.element.find("[name=file" + i + "]")
-        if (fe[0].files[0] === undefined) {
-          console.log("SKIPPING")
-          continue
-        }
-        try {
-          files.push(JSON.parse(await fe[0].files[0].text()));
-          fileName = fileName + '-' + fe[0].files[0].name.split(".")[0];
-          // save the first filename
-          if (files.length == 1) {
-            firstFileName = fe[0].files[0].name.split(".")[0]
-          }
-        } catch (e) {
-          if (filecount > 1) {
-            ui.notifications.warning("Skipping due to error while importing: " + fe[0].files[0].name + " " + e)
-          } else {
-            throw (e)
-          }
-        }
-      }
-      // keep the original filename if it is only one file at all
-      if (files.length == 0) {
-        ui.notifications.error("Skipped all files while importing.")
-        throw new Error("Skipped all files");
-      }
-      if (files.length == 1) {
-        fileName = firstFileName;
-      } else {
-        ui.notifications.notify("Combining images may take quite some time, be patient")
-      }
-      if (imageFileName) {
-        fileName = imageFileName
-        firstFileName = imageFileName
-      }
-      // lets use the first filename for the scene
-      if (sceneName == '') {
-        sceneName = firstFileName
-      }
+      let directoryPicker = await FilePicker.browse(...new FilePicker()._inferCurrentDirectory(directory))
+      await Folder.create({name: this.getDirectoryName(directory), type: "Scene"}).then(async parentFolder => {
+        for (const dir of directoryPicker.dirs) {
+          let directory = this.getDirectoryName(dir)
+          await Folder.create({name: this.getDirectoryName(directory), type: "Scene", parent: parentFolder.id}).then(async sceneFolder => {
+            let currentDirectory = await FilePicker.browse(...new FilePicker()._inferCurrentDirectory(dir))
+            // do the placement math
+            let size = {}
+            size.x = file.resolution.map_size.x
+            size.y = file.resolution.map_size.y
+            let grid_size = { 'x': size.x, 'y': size.y }
+            size.x = size.x * pixelsPerGrid
+            size.y = size.y * pixelsPerGrid
 
-      // determine the pixels per grid value to use
-      let pixelsPerGrid = ""
-      if (useCustomPixelsPerGrid) {
-        pixelsPerGrid = customPixelsPerGrid
-      } else {
-        pixelsPerGrid = files[0].resolution.pixels_per_grid
-      }
-      console.log("Grid PPI = ", pixelsPerGrid)
+            let width, height
 
-      // do the placement math
-      let size = {}
-      size.x = files[0].resolution.map_size.x
-      size.y = files[0].resolution.map_size.y
-      let grid_size = { 'x': size.x, 'y': size.y }
-      size.x = size.x * pixelsPerGrid
-      size.y = size.y * pixelsPerGrid
+            file.pos_in_image = { "x": 0, "y": 0}
+            file.pos_in_grid = { "x": 0, "y": 0}
 
-      let count = files.length
-      var width, height, gridw, gridh
-      // respect the stitching mode
-      if (mode == 'y') {
-        // vertical stitching
-        gridw = grid_size.x
-        gridh = count * grid_size.y
-        for (var f = 0; f < files.length; f++) {
-          files[f].pos_in_image = { "x": 0, "y": f * size.y }
-          files[f].pos_in_grid = { "x": 0, "y": f * grid_size.y }
-        }
-      } else if (mode == 'x') {
-        // horizontal stitching
-        for (var f = 0; f < files.length; f++) {
-          files[f].pos_in_image = { "y": 0, "x": f * size.x }
-          files[f].pos_in_grid = { "y": 0, "x": f * grid_size.x }
-        }
-        gridw = count * grid_size.x
-        gridh = grid_size.y
-      } else if (mode == 'g') {
-        // grid is the most complicated one
-        // we count the rows, as we fill them up first, e.g. 5 images will end up in 2 rows, the first with 3 the second with two images.
-        var vcount = 0
-        var hcount = count
-        var index = 0
-        let hwidth = Math.ceil(Math.sqrt(count))
-        // continue as there are images left
-        while (hcount > 0) {
-          var next_v_index = index + hwidth
-          // fill up each row, until all images are placed
-          while (index < Math.min(next_v_index, files.length)) {
-            files[index].pos_in_image = { "y": vcount * size.y, "x": (index - vcount * hwidth) * size.x }
-            files[index].pos_in_grid = { "y": vcount * grid_size.y, "x": (index - vcount * hwidth) * grid_size.x }
-            index += 1
-          }
-          hcount -= hwidth
-          vcount += 1
-        }
-        gridw = hwidth * grid_size.x
-        gridh = vcount * grid_size.y
-      }
-      width = gridw * pixelsPerGrid
-      height = gridh * pixelsPerGrid
-      //placement math done.
-      //Now use the image direct, in case of only one image and no conversion required
-      var image_type = '?'
+            width = grid_size.x * pixelsPerGrid
+            height = grid_size.y * pixelsPerGrid
+            //placement math done.
+            //Now use the image direct, in case of only one image and no conversion required
+            var image_type = '?'
 
-      // This code works for both single files and multiple files and supports resizing during scene generation
-      // Use a canvas to place the image in case we need to convert something
-      let thecanvas = document.createElement('canvas');
-      thecanvas.width = width;
-      thecanvas.height = height;
-      let mycanvas = thecanvas.getContext("2d");
-      ui.notifications.notify("Processing Images")
-      for (var fidx = 0; fidx < files.length; fidx++) {
-        ui.notifications.notify("Processing " + (fidx + 1) + " out of " + files.length + " images")
-        let f = files[fidx];
-        image_type = DDImporter.getImageType(atob(f.image.substr(0, 8)));
-        await DDImporter.image2Canvas(mycanvas, f, image_type, size.x, size.y)
-      }
-      ui.notifications.notify("Uploading image ....")
+            // This code works for both single files and multiple files and supports resizing during scene generation
+            // Use a canvas to place the image in case we need to convert something
+            let thecanvas = document.createElement('canvas');
+            thecanvas.width = width;
+            thecanvas.height = height;
+            let mycanvas = thecanvas.getContext("2d");
+            ui.notifications.notify("Processing Images")
+            for (var fidx = 0; fidx < files.length; fidx++) {
+              ui.notifications.notify("Processing " + (fidx + 1) + " out of " + files.length + " images")
+              let f = files[fidx];
+              image_type = DDImporter.getImageType(atob(f.image.substr(0, 8)));
+              await DDImporter.image2Canvas(mycanvas, f, image_type, size.x, size.y)
+            }
+            ui.notifications.notify("Uploading image ....")
 
-      var p = new Promise(function (resolve) {
-        thecanvas.toBlob(function (blob) {
-          blob.arrayBuffer().then(bfr => {
-            DDImporter.uploadFile(bfr, fileName, path, source, image_type)
-              .then(function () {
-                resolve()
+            var p = new Promise(function (resolve) {
+              thecanvas.toBlob(function (blob) {
+                blob.arrayBuffer().then(bfr => {
+                  DDImporter.uploadFile(bfr, fileName, path, source, image_type)
+                      .then(function () {
+                        resolve()
+                      })
+                });
+              }, "image/" + image_type)
+            })
+
+
+
+            // aggregate the walls and place them right
+            let aggregated = {
+              "format": 0.2,
+              "resolution": {
+                "map_origin": { "x": files[0].resolution.map_origin.x, "y": files[0].resolution.map_origin.y },
+                "map_size": { "x": gridw, "y": gridh },
+                "pixels_per_grid": pixelsPerGrid,
+              },
+              "line_of_sight": [],
+              "portals": [],
+              "environment": files[0]["environment"],
+              "lights": [],
+            }
+
+            // adapt the walls
+            for (var fidx = 0; fidx < files.length; fidx++) {
+              let f = files[fidx];
+              if (objectWalls)
+                f.line_of_sight = f.line_of_sight.concat(f.objects_line_of_sight || [])
+              f.line_of_sight.forEach(function (los) {
+                los.forEach(function (z) {
+                  z.x += f.pos_in_grid.x
+                  z.y += f.pos_in_grid.y
+                })
               })
-          });
-        }, "image/" + image_type)
+              f.portals.forEach(function (port) {
+                port.position.x += f.pos_in_grid.x
+                port.position.y += f.pos_in_grid.y
+                port.bounds.forEach(function (z) {
+                  z.x += f.pos_in_grid.x
+                  z.y += f.pos_in_grid.y
+                })
+              })
+              f.lights.forEach(function (port) {
+                port.position.x += f.pos_in_grid.x
+                port.position.y += f.pos_in_grid.y
+              })
+
+              aggregated.line_of_sight = aggregated.line_of_sight.concat(f.line_of_sight)
+              //Add wall around the image
+              if (wallsAroundFiles && files.length > 1) {
+                aggregated.line_of_sight.push(
+                    [
+                      { 'x': f.pos_in_grid.x, 'y': f.pos_in_grid.y },
+                      { 'x': f.pos_in_grid.x + f.resolution.map_size.x, 'y': f.pos_in_grid.y },
+                      { 'x': f.pos_in_grid.x + f.resolution.map_size.x, 'y': f.pos_in_grid.y + f.resolution.map_size.y },
+                      { 'x': f.pos_in_grid.x, 'y': f.pos_in_grid.y + f.resolution.map_size.y },
+                      { 'x': f.pos_in_grid.x, 'y': f.pos_in_grid.y }
+                    ])
+              }
+              aggregated.lights = aggregated.lights.concat(f.lights)
+              aggregated.portals = aggregated.portals.concat(f.portals)
+            }
+            ui.notifications.notify("Upload still in progress, please wait")
+            await p
+            ui.notifications.notify("Creating scene")
+            DDImporter.DDImport(aggregated, sceneName, fileName, path, fidelity, offset, image_type, source, pixelsPerGrid)
+
+            game.settings.set("dd-import", "importSettings", {
+              source: source,
+              path: path,
+              offset: offset,
+              fidelity: fidelity,
+              wallsAroundFiles: wallsAroundFiles,
+            });
+          })
+        }
       })
 
 
-
-      // aggregate the walls and place them right
-      let aggregated = {
-        "format": 0.2,
-        "resolution": {
-          "map_origin": { "x": files[0].resolution.map_origin.x, "y": files[0].resolution.map_origin.y },
-          "map_size": { "x": gridw, "y": gridh },
-          "pixels_per_grid": pixelsPerGrid,
-        },
-        "line_of_sight": [],
-        "portals": [],
-        "environment": files[0]["environment"],
-        "lights": [],
-      }
-
-      // adapt the walls
-      for (var fidx = 0; fidx < files.length; fidx++) {
-        let f = files[fidx];
-        if (objectWalls)
-          f.line_of_sight = f.line_of_sight.concat(f.objects_line_of_sight || [])
-        f.line_of_sight.forEach(function (los) {
-          los.forEach(function (z) {
-            z.x += f.pos_in_grid.x
-            z.y += f.pos_in_grid.y
-          })
-        })
-        f.portals.forEach(function (port) {
-          port.position.x += f.pos_in_grid.x
-          port.position.y += f.pos_in_grid.y
-          port.bounds.forEach(function (z) {
-            z.x += f.pos_in_grid.x
-            z.y += f.pos_in_grid.y
-          })
-        })
-        f.lights.forEach(function (port) {
-          port.position.x += f.pos_in_grid.x
-          port.position.y += f.pos_in_grid.y
-        })
-
-        aggregated.line_of_sight = aggregated.line_of_sight.concat(f.line_of_sight)
-        //Add wall around the image
-        if (wallsAroundFiles && files.length > 1) {
-          aggregated.line_of_sight.push(
-            [
-              { 'x': f.pos_in_grid.x, 'y': f.pos_in_grid.y },
-              { 'x': f.pos_in_grid.x + f.resolution.map_size.x, 'y': f.pos_in_grid.y },
-              { 'x': f.pos_in_grid.x + f.resolution.map_size.x, 'y': f.pos_in_grid.y + f.resolution.map_size.y },
-              { 'x': f.pos_in_grid.x, 'y': f.pos_in_grid.y + f.resolution.map_size.y },
-              { 'x': f.pos_in_grid.x, 'y': f.pos_in_grid.y }
-            ])
-        }
-        aggregated.lights = aggregated.lights.concat(f.lights)
-        aggregated.portals = aggregated.portals.concat(f.portals)
-      }
-      ui.notifications.notify("Upload still in progress, please wait")
-      await p
-      ui.notifications.notify("Creating scene")
-      DDImporter.DDImport(aggregated, sceneName, fileName, path, fidelity, offset, padding, image_type, source, pixelsPerGrid)
-
-      game.settings.set("dd-import", "importSettings", {
-        source: source,
-        path: path,
-        offset: offset,
-        padding: padding,
-        fidelity: fidelity,
-        multiImageMode: mode,
-        wallsAroundFiles: wallsAroundFiles,
-      });
     }
     catch (e) {
       ui.notifications.error("Error Importing: " + e)
@@ -304,42 +199,8 @@ class DDImporter extends FormApplication {
 
   activateListeners(html) {
     super.activateListeners(html)
-
-    DDImporter.checkPath(html)
     DDImporter.checkFidelity(html)
-    this.setRangeValue(html)
-
-
-    html.find(".path-input").keyup(ev => DDImporter.checkPath(html))
     html.find(".fidelity-input").change(ev => DDImporter.checkFidelity(html))
-    html.find(".padding-input").change(ev => this.setRangeValue(html))
-
-    html.find(".use-custom-gridPPI").click(async ev => {
-      if (html.find('[name="use-custom-gridPPI"]')[0].checked) {
-        html.find(".custom-gridPPI-section")[0].style.display = ""
-      } else {
-        html.find(".custom-gridPPI-section")[0].style.display = "none"
-      }
-    })
-
-    html.find(".import-map").click(async ev => {
-
-
-    })
-  }
-
-  setRangeValue(html) {
-    let val = html.find(".padding-input").val()
-    html.find(".range-value")[0].textContent = val
-  }
-
-  static checkPath(html) {
-    let pathValue = $("[name='path']")[0].value
-    if (pathValue[1] == ":") {
-      html.find(".warning.path")[0].style.display = ""
-    }
-    else
-      html.find(".warning.path")[0].style.display = "none"
   }
 
   static checkFidelity(html) {
@@ -418,7 +279,7 @@ class DDImporter extends FormApplication {
     await FilePicker.upload(source, path, uploadFile)
   }
 
-  static async DDImport(file, sceneName, fileName, path, fidelity, offset, padding, extension, source, pixelsPerGrid) {
+  static async DDImport(file, sceneName, fileName, path, fidelity, offset, extension, source, pixelsPerGrid) {
     if (path && path[path.length - 1] != "/")
       path = path + "/"
     let imagePath = path + fileName + "." + extension;
@@ -428,7 +289,7 @@ class DDImporter extends FormApplication {
       img: imagePath,
       width: pixelsPerGrid * file.resolution.map_size.x,
       height: pixelsPerGrid * file.resolution.map_size.y,
-      padding: padding,
+      padding: 0,
       shiftX: 0,
       shiftY: 0
     })
