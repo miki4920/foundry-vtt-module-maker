@@ -1,12 +1,4 @@
 <form>
-  <div class="form-group import convert-section" title="You can set a custom Grid PPI value at time of import to change the resolution of the generated image">
-    <label class="import-options">Set Custom Grid PPI <i class="far fa-question-circle"></i></label>
-    <div class="custom-gridPPI-section" name="custom-gridPPI-section">
-      <label class="import-options">Custom Grid PPI (between 50 and 256)</label>
-      <input class="customGridPPIInput" type='number' name="customGridPPI" value="{{defaultCustomPixelsPerGrid}}" min="50" max="256" />
-    </div>
-  </div>
-
   <div class="warning path notification error" style="display: none">
     Your path should be relative to your User Data folder. e.g. worlds/yourworld/maps, or blank to place in the "Data" folder.
   </div>
@@ -18,13 +10,6 @@
   </div>
   <div class="warning fidelity notification error" style="display: none">
     Higher Fidelity creates a very large amount of cave walls. Recommended to stay at the minimum.
-  </div>
-
-  <div class="form-group" title="Includes the walls from objects that block line of sight">
-    <label class="import-options">Object Walls <i class="far fa-question-circle"></i></label>
-    <input type="checkbox" name="object-walls" checked>
-  </div>
-
   </div>
 
   <div class="form-group import">
