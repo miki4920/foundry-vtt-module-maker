@@ -12,21 +12,15 @@
       "name": "",
       "label": "",
       "path": "packs/scenes",
-      "type": "Scene",
-      "flags": {},
-      "ownership": {
-        "PLAYER": "OBSERVER",
-        "ASSISTANT": "OWNER"
-      }
+      "type": "Scene"
     }
   ],
-  "manifest": "",
-  "download": "",
+  "manifest": "REPLACEME",
+  "download": "REPLACEME",
   "id": "",
   "authors": [
     {
-      "name": "",
-      "flags": {}
+      "name": ""
     }
   ]
 }
