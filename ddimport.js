@@ -72,11 +72,8 @@ class DDImporter extends FormApplication {
           await Folder.create({name: this.getDirectoryName(directory), type: "Scene", parent: parentFolder.id}).then(async sceneFolder => {
             let currentDirectory = await FilePicker.browse(...new FilePicker()._inferCurrentDirectory(dir))
             for (let path of currentDirectory.files) {
-              let image = new Image();
-              const response = await fetch(file)
-              const blob = await response.blob
-              console.log(battleMap)
-              // do the placement math
+              const response = await fetch(path);
+              const file = await response.json();
               let size = {}
               size.x = file.resolution.map_size.x
               size.y = file.resolution.map_size.y
@@ -101,15 +98,14 @@ class DDImporter extends FormApplication {
               thecanvas.width = width;
               thecanvas.height = height;
               let mycanvas = thecanvas.getContext("2d");
-              ui.notifications.notify("Processing Image")
               image_type = DDImporter.getImageType(atob(file.image.substr(0, 8)));
+              let fileName = this.getDirectoryName(path).split(".")[0]
               await DDImporter.image2Canvas(mycanvas, file, image_type, size.x, size.y)
-              ui.notifications.notify("Uploading image ....")
 
               var p = new Promise(function (resolve) {
                 thecanvas.toBlob(function (blob) {
                   blob.arrayBuffer().then(bfr => {
-                    DDImporter.uploadFile(bfr, fileName, path, source, image_type)
+                    DDImporter.uploadFile(bfr, fileName, dir, source, image_type)
                         .then(function () {
                           resolve()
                         })
@@ -123,56 +119,51 @@ class DDImporter extends FormApplication {
               let aggregated = {
                 "format": 0.2,
                 "resolution": {
-                  "map_origin": { "x": files[0].resolution.map_origin.x, "y": files[0].resolution.map_origin.y },
-                  "map_size": { "x": gridw, "y": gridh },
+                  "map_origin": { "x": file.resolution.map_origin.x, "y": file.resolution.map_origin.y },
+                  "map_size": { "x": grid_size.x, "y": grid_size.y },
                   "pixels_per_grid": pixelsPerGrid,
                 },
                 "line_of_sight": [],
                 "portals": [],
-                "environment": files[0]["environment"],
+                "environment": file["environment"],
                 "lights": [],
               }
 
-              // adapt the walls
-              for (var fidx = 0; fidx < files.length; fidx++) {
-                let f = files[fidx];
-                if (objectWalls)
-                  f.line_of_sight = f.line_of_sight.concat(f.objects_line_of_sight || [])
-                f.line_of_sight.forEach(function (los) {
-                  los.forEach(function (z) {
-                    z.x += f.pos_in_grid.x
-                    z.y += f.pos_in_grid.y
-                  })
+              let f = file;
+              if (objectWalls)
+                f.line_of_sight = f.line_of_sight.concat(f.objects_line_of_sight || [])
+              f.line_of_sight.forEach(function (los) {
+                los.forEach(function (z) {
+                  z.x += f.pos_in_grid.x
+                  z.y += f.pos_in_grid.y
                 })
-                f.portals.forEach(function (port) {
-                  port.position.x += f.pos_in_grid.x
-                  port.position.y += f.pos_in_grid.y
-                  port.bounds.forEach(function (z) {
-                    z.x += f.pos_in_grid.x
-                    z.y += f.pos_in_grid.y
-                  })
+              })
+              f.portals.forEach(function (port) {
+                port.position.x += f.pos_in_grid.x
+                port.position.y += f.pos_in_grid.y
+                port.bounds.forEach(function (z) {
+                  z.x += f.pos_in_grid.x
+                  z.y += f.pos_in_grid.y
                 })
-                f.lights.forEach(function (port) {
-                  port.position.x += f.pos_in_grid.x
-                  port.position.y += f.pos_in_grid.y
-                })
+              })
+              f.lights.forEach(function (port) {
+                port.position.x += f.pos_in_grid.x
+                port.position.y += f.pos_in_grid.y
+              })
 
-                aggregated.line_of_sight = aggregated.line_of_sight.concat(f.line_of_sight)
-                aggregated.lights = aggregated.lights.concat(f.lights)
-                aggregated.portals = aggregated.portals.concat(f.portals)
-              }
-              ui.notifications.notify("Upload still in progress, please wait")
+              aggregated.line_of_sight = aggregated.line_of_sight.concat(f.line_of_sight)
+              aggregated.lights = aggregated.lights.concat(f.lights)
+              aggregated.portals = aggregated.portals.concat(f.portals)
               await p
-              ui.notifications.notify("Creating scene")
-              DDImporter.DDImport(aggregated, sceneName, fileName, path, fidelity, offset, image_type, source, pixelsPerGrid)
+              DDImporter.DDImport(aggregated, fileName, path, fidelity, image_type, source, pixelsPerGrid, sceneFolder)
 
               game.settings.set("dd-import", "importSettings", {
                 source: source,
                 path: path,
-                offset: offset,
                 fidelity: fidelity,
-                wallsAroundFiles: wallsAroundFiles,
               });
+
+
             }
 
           })
@@ -266,29 +257,31 @@ class DDImporter extends FormApplication {
 
   static async uploadFile(file, name, path, source, extension) {
     let uploadFile = new File([file], name + "." + extension, { type: 'image/' + extension });
-    await FilePicker.upload(source, path, uploadFile)
+    await FilePicker.upload(source, decodeURI(path) + "/", uploadFile)
   }
 
-  static async DDImport(file, sceneName, fileName, path, fidelity, offset, extension, source, pixelsPerGrid) {
-    if (path && path[path.length - 1] != "/")
-      path = path + "/"
+  static async DDImport(file, fileName, path, fidelity, extension, source, pixelsPerGrid, parent) {
+    let offset = 0
+    path = path.split("/")
+    path.pop()
+    path = path.join("/") + "/"
     let imagePath = path + fileName + "." + extension;
     let newScene = new Scene({
-      name: sceneName,
+      name: fileName,
       grid: pixelsPerGrid,
       img: imagePath,
       width: pixelsPerGrid * file.resolution.map_size.x,
       height: pixelsPerGrid * file.resolution.map_size.y,
       padding: 0,
       shiftX: 0,
-      shiftY: 0
+      shiftY: 0,
+      folder: parent.id
     })
     newScene.updateSource(
       {
         walls: this.GetWalls(file, newScene, 6 - fidelity, offset, pixelsPerGrid).concat(this.GetDoors(file, newScene, offset, pixelsPerGrid)).map(i => i.toObject()),
         lights: this.GetLights(file, newScene, pixelsPerGrid).map(i => i.toObject())
       })
-    //mergeObject(newScene.data, {walls: walls.concat(doors), lights: lights})
     let scene = await Scene.create(newScene.toObject());
     scene.createThumbnail().then(thumb => {
       scene.update({ "thumb": thumb.thumb });
@@ -315,9 +308,6 @@ class DDImporter extends FormApplication {
         }
       }
 
-      if (offset != 0) {
-        wallSet = this.makeOffsetWalls(wallSet, offset)
-      }
       wallSet = this.preprocessWalls(wallSet, skipNum)
       // Connect to walls that end *before* the current wall
       for (let i = 0; i < connectedTo.length; i++) {
@@ -384,54 +374,6 @@ class DDImporter extends FormApplication {
     return wallSet
   }
 
-  static makeOffsetWalls(wallSet, offset, shortWallThreshold = 0.3, shortWallAmountThreshold = 70) {
-    let wallinfo = [];
-    let shortWalls = this.GetShortWallCount(wallSet, shortWallThreshold);
-    // Assume short wallsets or containing long walls are not caves.
-    let shortWallAmount = Math.round((shortWalls / wallSet.length) * 100);
-    if (wallSet.length < 10 || shortWallAmount < shortWallAmountThreshold) {
-      return wallSet
-    }
-    // connect the ends if they match
-    if (wallSet[0].x == wallSet[wallSet.length - 1].x && wallSet[0].y == wallSet[wallSet.length - 1].y) {
-      wallSet.push(wallSet[1]);
-      wallSet.push(wallSet[2]);
-    }
-    for (let i = 0; i < wallSet.length - 1; i++) {
-      let slope;
-      let myoffset;
-      let woffset;
-      let m;
-      if ((wallSet[i + 1].x - wallSet[i].x) == 0) {
-        slope = undefined;
-        myoffset = offset;
-        if (wallSet[i + 1].y < wallSet[i].y) {
-          myoffset = -myoffset;
-        }
-        woffset = { x: myoffset, y: 0 }
-        m = 0;
-      } else {
-        slope = ((wallSet[i + 1].y - wallSet[i].y) / (wallSet[i + 1].x - wallSet[i].x))
-        let dir = (wallSet[i + 1].x - wallSet[i].x) >= 0;
-        woffset = this.GetOffset(slope, offset, dir);
-        m = wallSet[i].x + woffset.x - wallSet[i].y + woffset.y
-      }
-      let x = wallSet[i].x + woffset.x
-      let y = wallSet[i].y + woffset.y
-      wallinfo.push({
-        x: x,
-        y: y,
-        slope: slope,
-        m: m
-      })
-    }
-    let newWallSet = []
-    for (let i = 0; i < wallSet.length - 2; i++) {
-      newWallSet.push(this.interception(wallinfo[i], wallinfo[i + 1]));
-    }
-    return newWallSet
-  }
-
   static GetShortWallCount(wallSet, shortWallThreshold) {
     let shortCount = 0;
     for (let i = 0; i < wallSet.length - 1; i++) {
@@ -440,15 +382,6 @@ class DDImporter extends FormApplication {
       }
     }
     return shortCount
-  }
-
-  static GetOffset(slope, offset, dir) {
-    let yoffset = Math.sqrt((offset * offset) / (1 + slope * slope));
-    let xoffset = slope * yoffset;
-    if ((slope <= 0 && dir) || (slope > 0 && dir)) {
-      return { x: xoffset, y: -yoffset }
-    }
-    return { x: -xoffset, y: yoffset }
   }
 
   static interception(wallinfo1, wallinfo2) {
@@ -494,9 +427,6 @@ class DDImporter extends FormApplication {
     let offsetX = sceneDimensions.sceneX
     let offsetY = sceneDimensions.sceneY
 
-    if (offset != 0) {
-      ddDoors = this.makeOffsetWalls(ddDoors, offset)
-    }
     for (let door of ddDoors) {
       try {
 
@@ -507,7 +437,7 @@ class DDImporter extends FormApplication {
             (door.bounds[1].x * pixelsPerGrid) + offsetX,
             (door.bounds[1].y * pixelsPerGrid) + offsetY
           ],
-          door: game.settings.get("dd-import", "openableWindows") ? 1 : (door.closed ? 1 : 0), // If openable windows - all portals should be doors, otherwise, only portals that "block light" should be openable (doors)
+          door: door.closed ? 1 : 0, // If openable windows - all portals should be doors, otherwise, only portals that "block light" should be openable (doors)
           sense: (door.closed) ? CONST.WALL_SENSE_TYPES.NORMAL : CONST.WALL_SENSE_TYPES.NONE
         }))
       }
