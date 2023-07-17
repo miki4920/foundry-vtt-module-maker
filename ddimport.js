@@ -51,7 +51,6 @@ class DDImporter extends FormApplication {
   async createModule(source, moduleName) {
     await FilePicker.createDirectory(source, "/modules/" + moduleName)
     await FilePicker.createDirectory(source, "/modules/" + moduleName + "/" + "maps")
-    await FilePicker.createDirectory(source, "/modules/" + moduleName + "/" + "thumbs")
     let response = await fetch("modules/foundry-vtt-module-maker/template.json")
     let moduleFile = await response.json()
     moduleFile.id = moduleName
