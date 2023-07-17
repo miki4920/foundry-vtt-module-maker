@@ -1,3 +1,23 @@
+Hooks.once('init', async function() {
+  game.settings.register("foundry-vtt-module-maker", "author", {
+    name: "Author",
+    hint: "Set Author Name That Will Be Appended To Each Module",
+    scope: "world",
+    config: true,
+    type: String,
+    default: "",
+  });
+
+  game.settings.register("foundry-vtt-module-maker", "pixelsPerGrid", {
+    name: "Pixels Per Grid",
+    hint: "Size of each grid square in pixels",
+    scope: "world",
+    config: true,
+    type: Number,
+    default: 140,
+  });
+});
+
 Hooks.on("renderSidebarTab", async (app, html) => {
   if (app instanceof SceneDirectory) {
     let button = $("<button class='import-dd'><i class='fas fa-file-import'></i> Module Maker</button>")
@@ -10,27 +30,7 @@ Hooks.on("renderSidebarTab", async (app, html) => {
   }
 })
 
-Hooks.on("init", () => {
-  game.settings.register("dd-import", "importSettings", {
-    name: "Dungeondraft Default Path",
-    scope: "world",
-    config: false,
-    default: {
-      path: "worlds/" + game.world.id,
-      fidelity: 3,
-      wallsAroundFiles: true,
-      useCustomPixelsPerGrid: false,
-      defaultCustomPixelsPerGrid: 100,
-    }
-  })
-})
-
-
-
-
 class DDImporter extends FormApplication {
-
-
   static get defaultOptions() {
     const options = super.defaultOptions;
     options.id = "module-maker";
@@ -44,18 +44,29 @@ class DDImporter extends FormApplication {
     return options;
   }
 
-  async getData() {
-    let data = await super.getData();
-    let settings = game.settings.get("dd-import", "importSettings")
-    data.path = settings.path || "";
-    data.wallsAroundFiles = settings.wallsAroundFiles;
-    data.useCustomPixelsPerGrid = settings.useCustomPixelsPerGrid;
-    data.defaultCustomPixelsPerGrid = settings.defaultCustomPixelsPerGrid || 100;
-    return data
-  }
-
   getDirectoryName(name) {
     return decodeURI(name.split("/").at(-1))
+  }
+
+  async createModule(source, moduleName) {
+    await FilePicker.createDirectory(source, "/modules/" + moduleName)
+    await FilePicker.createDirectory(source, "/modules/" + moduleName + "/" + "maps")
+    await FilePicker.createDirectory(source, "/modules/" + moduleName + "/" + "thumbs")
+    let response = await fetch("modules/foundry-vtt-module-maker/template.json")
+    let moduleFile = await response.json()
+    moduleFile.id = moduleName
+    moduleFile.title = moduleName.split("-").map(word => {
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    }).join(" ");
+    moduleFile.description =  moduleFile.description + game.settings.get("foundry-vtt-module-maker", "author")
+    moduleFile.compatibility.verified = game.version
+    moduleFile.packs[0].label = moduleFile.title
+    moduleFile.packs[0].name = moduleFile.id
+    moduleFile.authors[0].name = game.settings.get("foundry-vtt-module-maker", "author").toLowerCase()
+    moduleFile = JSON.stringify(moduleFile, null, 4)
+    moduleFile = new Blob([moduleFile], {type : 'application/json'})
+    moduleFile = new File([moduleFile], "module.json", {type: 'application/json'});
+    await FilePicker.upload(source, "/modules/" + moduleName + "/", moduleFile)
   }
 
   async _updateObject(event, formData) {
@@ -63,8 +74,10 @@ class DDImporter extends FormApplication {
       let directory = formData["directory"]
       let fidelity = parseInt(formData["fidelity"])
       let source = "data"
-      let objectWalls = formData["object-walls"]
-      let pixelsPerGrid = formData["customGridPPI"] * 1
+      let pixelsPerGrid = game.settings.get("foundry-vtt-module-maker", "pixelsPerGrid")
+      let moduleName = game.settings.get("foundry-vtt-module-maker", "author").toLowerCase() + "-" + this.getDirectoryName(directory).split(" ").join("-").toLowerCase()
+      await this.createModule(source, moduleName)
+      moduleName = "/modules/" + moduleName + "/maps/"
       let directoryPicker = await FilePicker.browse(...new FilePicker()._inferCurrentDirectory(directory))
       await Folder.create({name: this.getDirectoryName(directory), type: "Scene"}).then(async parentFolder => {
         for (const dir of directoryPicker.dirs) {
@@ -90,30 +103,18 @@ class DDImporter extends FormApplication {
               height = grid_size.y * pixelsPerGrid
               //placement math done.
               //Now use the image direct, in case of only one image and no conversion required
-              var image_type = '?'
+              var imageType = '?'
 
-              // This code works for both single files and multiple files and supports resizing during scene generation
-              // Use a canvas to place the image in case we need to convert something
-              let thecanvas = document.createElement('canvas');
-              thecanvas.width = width;
-              thecanvas.height = height;
-              let mycanvas = thecanvas.getContext("2d");
-              image_type = DDImporter.getImageType(atob(file.image.substr(0, 8)));
+              imageType = DDImporter.getImageType(atob(file.image.substr(0, 8)));
               let fileName = this.getDirectoryName(path).split(".")[0]
-              await DDImporter.image2Canvas(mycanvas, file, image_type, size.x, size.y)
-
-              var p = new Promise(function (resolve) {
-                thecanvas.toBlob(function (blob) {
-                  blob.arrayBuffer().then(bfr => {
-                    DDImporter.uploadFile(bfr, fileName, dir, source, image_type)
-                        .then(function () {
-                          resolve()
-                        })
-                  });
-                }, "image/" + image_type)
-              })
-
-
+              let imageBytes = atob(file.image)
+              let imageArray = new Uint8Array(imageBytes.length);
+              for (let i = 0; i < imageBytes.length; i++) {
+                imageArray[i] = imageBytes.charCodeAt(i);
+              }
+              let imageBlob = new Blob([imageArray], { type: "image/"+imageType });
+              let imageFile = new File([imageBlob], fileName + "." + imageType, { type: "image/"+imageType });
+              await FilePicker.upload(source, moduleName, imageFile)
 
               // aggregate the walls and place them right
               let aggregated = {
@@ -130,8 +131,7 @@ class DDImporter extends FormApplication {
               }
 
               let f = file;
-              if (objectWalls)
-                f.line_of_sight = f.line_of_sight.concat(f.objects_line_of_sight || [])
+              f.line_of_sight = f.line_of_sight.concat(f.objects_line_of_sight || [])
               f.line_of_sight.forEach(function (los) {
                 los.forEach(function (z) {
                   z.x += f.pos_in_grid.x
@@ -154,23 +154,12 @@ class DDImporter extends FormApplication {
               aggregated.line_of_sight = aggregated.line_of_sight.concat(f.line_of_sight)
               aggregated.lights = aggregated.lights.concat(f.lights)
               aggregated.portals = aggregated.portals.concat(f.portals)
-              await p
-              DDImporter.DDImport(aggregated, fileName, path, fidelity, image_type, source, pixelsPerGrid, sceneFolder)
-
-              game.settings.set("dd-import", "importSettings", {
-                source: source,
-                path: path,
-                fidelity: fidelity,
-              });
-
-
+              await DDImporter.DDImport(aggregated, fileName, moduleName, fidelity, imageType, source, pixelsPerGrid, sceneFolder)
             }
 
           })
         }
       })
-
-
     }
     catch (e) {
       ui.notifications.error("Error Importing: " + e)
@@ -194,37 +183,6 @@ class DDImporter extends FormApplication {
 
   }
 
-  static DecodeImage(file) {
-    var byteString = atob(file.image);
-    var ab = new ArrayBuffer(byteString.length);
-    var ia = new Uint8Array(ab);
-
-    for (var i = 0; i < byteString.length; i++) {
-      ia[i] = byteString.charCodeAt(i);
-    }
-    return ab;
-  }
-
-  static Uint8ToBase64(u8Arr) {
-    var CHUNK_SIZE = 0x8000;
-    var index = 0;
-    var length = u8Arr.length;
-    var result = '';
-    var slice;
-    // we need to do slices for large amount of data
-    while (index < length) {
-      slice = u8Arr.subarray(index, Math.min(index + CHUNK_SIZE, length));
-      result += String.fromCharCode.apply(null, slice);
-      index += CHUNK_SIZE;
-    }
-    return btoa(result);
-  }
-
-  
-  static Uint8ToBlob(u8Arr, type) {
-    return new Blob([u8Arr], {type : "image/" + type});
-  }
-
   static getImageType(bytes) {
     let magic = bytes.substr(0, 4);
     if (magic == "\u0089PNG") {
@@ -236,35 +194,8 @@ class DDImporter extends FormApplication {
     return 'png';
   }
 
-  static image2Canvas(canvas, file, extension, imageWidth, imageHeight) {
-    return new Promise(function (resolve) {
-      var image = new Image();
-      image.decoding = 'sync';
-      image.addEventListener('load', function () {
-        image.decode().then(() => {
-          canvas.drawImage(image, file.pos_in_image.x, file.pos_in_image.y, imageWidth, imageHeight);
-          resolve()
-        }).catch(e => {
-          console.log("decode failed because of DOMException, lets try directly");
-          console.log(e);
-          canvas.drawImage(image, file.pos_in_image.x, file.pos_in_image.y, imageWidth, imageHeight);
-          resolve()
-        });
-      });
-      image.src = URL.createObjectURL(DDImporter.Uint8ToBlob(DDImporter.DecodeImage(file), extension))
-    });
-  }
-
-  static async uploadFile(file, name, path, source, extension) {
-    let uploadFile = new File([file], name + "." + extension, { type: 'image/' + extension });
-    await FilePicker.upload(source, decodeURI(path) + "/", uploadFile)
-  }
-
   static async DDImport(file, fileName, path, fidelity, extension, source, pixelsPerGrid, parent) {
     let offset = 0
-    path = path.split("/")
-    path.pop()
-    path = path.join("/") + "/"
     let imagePath = path + fileName + "." + extension;
     let newScene = new Scene({
       name: fileName,
@@ -372,48 +303,6 @@ class DDImporter extends FormApplication {
       }
     }
     return wallSet
-  }
-
-  static GetShortWallCount(wallSet, shortWallThreshold) {
-    let shortCount = 0;
-    for (let i = 0; i < wallSet.length - 1; i++) {
-      if (this.distance(wallSet[i], wallSet[i + 1]) < shortWallThreshold) {
-        shortCount++;
-      }
-    }
-    return shortCount
-  }
-
-  static interception(wallinfo1, wallinfo2) {
-    /*
-     * x = (m2-m1)/(k1-k2)
-     * y = k1*x + m1
-     */
-    if (wallinfo1.slope == undefined && wallinfo2.slope == undefined) {
-      return { x: wallinfo1.x, y: (wallinfo1.y + wallinfo2.y) / 2 }
-    }
-    else if (wallinfo1.slope == undefined) {
-      let m2 = wallinfo2.y - wallinfo2.slope * wallinfo2.x
-      return { x: wallinfo1.x, y: wallinfo2.slope * wallinfo1.x + m2 }
-    }
-    else if (wallinfo2.slope == undefined) {
-      let m1 = wallinfo1.y - wallinfo1.slope * wallinfo1.x
-      return { x: wallinfo2.x, y: wallinfo1.slope * wallinfo2.x + m1 }
-    }
-    /* special case if we skipped a short wall, which leads to two parallel walls,
-     * or we have a straight wall with multiple points. */
-    else if (wallinfo1.slope == wallinfo2.slope) {
-      if (wallinfo1.slope == 0) {
-        return { x: wallinfo1.x + (wallinfo2.x - wallinfo1.x) / 2, y: wallinfo1.y }
-      } else {
-        return { x: wallinfo1.x, y: wallinfo1.y + (wallinfo2.y - wallinfo1.y) / 2 }
-      }
-
-    }
-    let m1 = wallinfo1.y - wallinfo1.slope * wallinfo1.x
-    let m2 = wallinfo2.y - wallinfo2.slope * wallinfo2.x
-    let x = (m2 - m1) / (wallinfo1.slope - wallinfo2.slope)
-    return { x: x, y: wallinfo1.slope * x + m1 }
   }
 
   static distance(p1, p2) {
