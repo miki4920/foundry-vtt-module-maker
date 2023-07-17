@@ -1,0 +1,32 @@
+{
+  "title": "",
+  "description": "",
+  "version": "1.0.0",
+  "compatibility": {
+    "minimum": "9",
+    "verified": "11.302",
+    "maximum": "11"
+  },
+  "packs": [
+    {
+      "name": "",
+      "label": "",
+      "path": "packs/scenes",
+      "type": "Scene",
+      "flags": {},
+      "ownership": {
+        "PLAYER": "OBSERVER",
+        "ASSISTANT": "OWNER"
+      }
+    }
+  ],
+  "manifest": "",
+  "download": "",
+  "id": "",
+  "authors": [
+    {
+      "name": "",
+      "flags": {}
+    }
+  ]
+}
