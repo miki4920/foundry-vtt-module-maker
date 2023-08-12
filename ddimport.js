@@ -153,7 +153,7 @@ class DDImporter extends FormApplication {
               aggregated.line_of_sight = aggregated.line_of_sight.concat(f.line_of_sight)
               aggregated.lights = aggregated.lights.concat(f.lights)
               aggregated.portals = aggregated.portals.concat(f.portals)
-              await DDImporter.DDImport(aggregated, fileName, moduleName, fidelity, imageType, source, pixelsPerGrid, sceneFolder)
+              await this.DDImport(aggregated, fileName, moduleName, fidelity, imageType, source, pixelsPerGrid, sceneFolder, imageFile)
             }
 
           })
@@ -193,7 +193,41 @@ class DDImporter extends FormApplication {
     return 'png';
   }
 
-  static async DDImport(file, fileName, path, fidelity, extension, source, pixelsPerGrid, parent) {
+  async createThumbnail(file, callback) {
+      const reader = new FileReader();
+      reader.onload = function(e) {
+          const img = new Image();
+          img.onload = function() {
+              // Create a canvas to draw the thumbnail
+              const canvas = document.createElement('canvas');
+              const ctx = canvas.getContext('2d');
+              const maxSize = 100; // Thumbnail dimension
+
+              // Calculate the scaling factor
+              const scaleFactor = Math.min(maxSize / img.width, maxSize / img.height);
+              canvas.width = img.width * scaleFactor;
+              canvas.height = img.height * scaleFactor;
+
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+              const thumbnailDataUrl = canvas.toDataURL('image/webp');
+              callback(thumbnailDataUrl);
+          };
+
+          img.onerror = function() {
+              console.error("There was an error processing the file!");
+          };
+
+          img.src = e.target.result;
+      };
+
+      reader.onerror = function() {
+          console.error("There was an error reading the file!");
+      };
+      reader.readAsDataURL(file);
+  }
+
+  async DDImport(file, fileName, path, fidelity, extension, source, pixelsPerGrid, parent, thumbnailFile) {
     let offset = 0
     let imagePath = path + fileName + "." + extension;
     let newScene = new Scene({
@@ -202,6 +236,7 @@ class DDImporter extends FormApplication {
       img: imagePath,
       width: pixelsPerGrid * file.resolution.map_size.x,
       height: pixelsPerGrid * file.resolution.map_size.y,
+	  navigation: false,
       padding: 0,
       shiftX: 0,
       shiftY: 0,
@@ -209,12 +244,12 @@ class DDImporter extends FormApplication {
     })
     newScene.updateSource(
       {
-        walls: this.GetWalls(file, newScene, 6 - fidelity, offset, pixelsPerGrid).concat(this.GetDoors(file, newScene, offset, pixelsPerGrid)).map(i => i.toObject()),
-        lights: this.GetLights(file, newScene, pixelsPerGrid).map(i => i.toObject())
+        walls: DDImporter.GetWalls(file, newScene, 6 - fidelity, offset, pixelsPerGrid).concat(DDImporter.GetDoors(file, newScene, offset, pixelsPerGrid)).map(i => i.toObject()),
+        lights: DDImporter.GetLights(file, newScene, pixelsPerGrid).map(i => i.toObject())
       })
     let scene = await Scene.create(newScene.toObject());
-    scene.createThumbnail().then(thumb => {
-      scene.update({ "thumb": thumb.thumb });
+	await this.createThumbnail(thumbnailFile, (thumb) => {
+      scene.update({"thumb": thumb});
     })
   }
 
