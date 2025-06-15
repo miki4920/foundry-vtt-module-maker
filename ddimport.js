@@ -77,12 +77,12 @@ export class DDImporter extends FormApplication {
       let moduleName = game.settings.get("foundry-vtt-module-maker", "author").toLowerCase() + "-" + this.getDirectoryName(directory).split(" ").join("-").toLowerCase()
       await this.createModule(source, moduleName)
       moduleName = "/modules/" + moduleName + "/maps/"
-      let directoryPicker = await FilePicker.browse(...new FilePicker()._inferCurrentDirectory(directory))
+      let directoryPicker = await FilePicker.browse(...new FilePicker()._inferSourceAndTarget(directory))
       await Folder.create({name: this.getDirectoryName(directory), type: "Scene"}).then(async parentFolder => {
         for (const dir of directoryPicker.dirs) {
           let directory = this.getDirectoryName(dir)
           await Folder.create({name: this.getDirectoryName(directory), type: "Scene", folder: parentFolder.id}).then(async sceneFolder => {
-            let currentDirectory = await FilePicker.browse(...new FilePicker()._inferCurrentDirectory(dir))
+            let currentDirectory = await FilePicker.browse(...new FilePicker()._inferSourceAndTarget(dir))
             for (let path of currentDirectory.files) {
               const response = await fetch(path);
               const file = await response.json();
@@ -169,7 +169,7 @@ export class DDImporter extends FormApplication {
       let fidelity = 1;
       let source = "data"
       let pixelsPerGrid = 140;
-      let currentDirectory = await FilePicker.browse(...new FilePicker()._inferCurrentDirectory(folderPath))
+      let currentDirectory = await FilePicker.browse(...new FilePicker()._inferSourceAndTarget(folderPath))
       for (let path of currentDirectory.files) {
         if (path.endsWith('dd2vtt')) {
           const response = await fetch(path);
