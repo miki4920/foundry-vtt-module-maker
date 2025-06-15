@@ -1,3 +1,4 @@
+
 Hooks.once('init', async function() {
   game.settings.register("foundry-vtt-module-maker", "author", {
     name: "Author",
@@ -18,19 +19,18 @@ Hooks.once('init', async function() {
   });
 });
 
-Hooks.on("renderSidebarTab", async (app, html) => {
-  if (app instanceof SceneDirectory) {
-    let button = $("<button class='import-dd'><i class='fas fa-file-import'></i> Module Maker</button>")
-
-    button.click(function () {
+Hooks.on("renderSceneDirectory", async (app, html) => {
+  let footer = $("#scenes .directory-footer.action-buttons");
+  if (footer.find("button:contains('Module Maker')").length === 0) {
+    let sessionButton = $("<button class='import-dd'><i class='fas fa-file-import'></i>Module Maker</button>");
+    footer.append(sessionButton);
+    sessionButton.on("click", function() {
       new DDImporter().render(true);
     });
-
-    html.find(".directory-footer").append(button);
   }
-})
+});
 
-class DDImporter extends FormApplication {
+export class DDImporter extends FormApplication {
   static get defaultOptions() {
     const options = super.defaultOptions;
     options.id = "module-maker";
@@ -81,7 +81,7 @@ class DDImporter extends FormApplication {
       await Folder.create({name: this.getDirectoryName(directory), type: "Scene"}).then(async parentFolder => {
         for (const dir of directoryPicker.dirs) {
           let directory = this.getDirectoryName(dir)
-          await Folder.create({name: this.getDirectoryName(directory), type: "Scene", parent: parentFolder.id}).then(async sceneFolder => {
+          await Folder.create({name: this.getDirectoryName(directory), type: "Scene", folder: parentFolder.id}).then(async sceneFolder => {
             let currentDirectory = await FilePicker.browse(...new FilePicker()._inferCurrentDirectory(dir))
             for (let path of currentDirectory.files) {
               const response = await fetch(path);
@@ -102,18 +102,17 @@ class DDImporter extends FormApplication {
               height = grid_size.y * pixelsPerGrid
               //placement math done.
               //Now use the image direct, in case of only one image and no conversion required
-              var imageType = '?'
+              let imageType = 'avif';
+			  let fileName = this.getDirectoryName(path).split(".")[0];
+			  let imageBytes = atob(file.image);
+		      let imageArray = new Uint8Array(imageBytes.length);
 
-              imageType = DDImporter.getImageType(atob(file.image.substr(0, 8)));
-              let fileName = this.getDirectoryName(path).split(".")[0]
-              let imageBytes = atob(file.image)
-              let imageArray = new Uint8Array(imageBytes.length);
-              for (let i = 0; i < imageBytes.length; i++) {
-                imageArray[i] = imageBytes.charCodeAt(i);
-              }
-              let imageBlob = new Blob([imageArray], { type: "image/"+imageType });
-              let imageFile = new File([imageBlob], fileName + "." + imageType, { type: "image/"+imageType });
-              await FilePicker.upload(source, moduleName, imageFile)
+			  for (let i = 0; i < imageBytes.length; i++) {
+				imageArray[i] = imageBytes.charCodeAt(i);
+			  }
+			  let imageBlob = new Blob([imageArray], { type: "image/avif" });
+			  let imageFile = new File([imageBlob], fileName + ".avif", { type: "image/avif" });
+			  await FilePicker.upload(source, moduleName, imageFile);
 
               // aggregate the walls and place them right
               let aggregated = {
@@ -165,6 +164,81 @@ class DDImporter extends FormApplication {
     }
   }
 
+  async importModuleMaps(sceneFolder, folderPath) {
+    try {
+      let fidelity = 1;
+      let source = "data"
+      let pixelsPerGrid = 140;
+      let currentDirectory = await FilePicker.browse(...new FilePicker()._inferCurrentDirectory(folderPath))
+      for (let path of currentDirectory.files) {
+        if (path.endsWith('dd2vtt')) {
+          const response = await fetch(path);
+          const file = await response.json();
+          let size = {}
+          size.x = file.resolution.map_size.x
+          size.y = file.resolution.map_size.y
+          let grid_size = { 'x': size.x, 'y': size.y }
+          size.x = size.x * pixelsPerGrid
+          size.y = size.y * pixelsPerGrid
+          let width, height
+          file.pos_in_image = { "x": 0, "y": 0}
+          file.pos_in_grid = { "x": 0, "y": 0}
+          width = grid_size.x * pixelsPerGrid
+          height = grid_size.y * pixelsPerGrid
+          let imageType = '?';
+          imageType = DDImporter.getImageType(atob(file.image.substr(0, 8)));
+          let fileName = this.getDirectoryName(path).split(".")[0]
+          let imageBytes = atob(file.image)
+          let imageArray = new Uint8Array(imageBytes.length);
+          for (let i = 0; i < imageBytes.length; i++) {
+            imageArray[i] = imageBytes.charCodeAt(i);
+          }
+          let imageBlob = new Blob([imageArray], { type: "image/"+imageType });
+          let imageFile = new File([imageBlob], fileName + "." + imageType, { type: "image/"+imageType });
+          await FilePicker.upload(source, folderPath, imageFile)
+          let aggregated = {
+            "format": 0.2,
+            "resolution": {
+              "map_origin": { "x": file.resolution.map_origin.x, "y": file.resolution.map_origin.y },
+              "map_size": { "x": grid_size.x, "y": grid_size.y },
+              "pixels_per_grid": pixelsPerGrid,
+            },
+            "line_of_sight": [],
+            "portals": [],
+            "environment": file["environment"],
+            "lights": [],
+          }
+          let f = file;
+          f.line_of_sight = f.line_of_sight.concat(f.objects_line_of_sight || [])
+          f.line_of_sight.forEach(function (los) {
+            los.forEach(function (z) {
+              z.x += f.pos_in_grid.x
+              z.y += f.pos_in_grid.y
+            })
+          })
+          f.portals.forEach(function (port) {
+            port.position.x += f.pos_in_grid.x
+            port.position.y += f.pos_in_grid.y
+            port.bounds.forEach(function (z) {
+              z.x += f.pos_in_grid.x
+              z.y += f.pos_in_grid.y
+            })
+          })
+          f.lights.forEach(function (port) {
+            port.position.x += f.pos_in_grid.x
+            port.position.y += f.pos_in_grid.y
+          })
+          aggregated.line_of_sight = aggregated.line_of_sight.concat(f.line_of_sight)
+          aggregated.lights = aggregated.lights.concat(f.lights)
+          aggregated.portals = aggregated.portals.concat(f.portals)
+          await this.DDImport(aggregated, fileName, folderPath, fidelity, imageType, source, pixelsPerGrid, sceneFolder, imageFile)
+        }
+      }
+    }
+    catch (e) {
+      ui.notifications.error("Error Importing: " + e)
+    }
+  }
 
   activateListeners(html) {
     super.activateListeners(html)
@@ -232,8 +306,8 @@ class DDImporter extends FormApplication {
     let imagePath = path + fileName + "." + extension;
     let newScene = new Scene({
       name: fileName,
-      grid: pixelsPerGrid,
-      img: imagePath,
+      grid: {size: pixelsPerGrid},
+      background: {src: imagePath},
       width: pixelsPerGrid * file.resolution.map_size.x,
       height: pixelsPerGrid * file.resolution.map_size.y,
 	  navigation: false,
@@ -349,16 +423,19 @@ class DDImporter extends FormApplication {
     let sceneDimensions = scene.getDimensions()
     let offsetX = sceneDimensions.sceneX
     let offsetY = sceneDimensions.sceneY
+	
+	let originX = file.resolution.map_origin.x
+    let originY = file.resolution.map_origin.y
 
     for (let door of ddDoors) {
       try {
 
         doors.push(new WallDocument({
           c: [
-            (door.bounds[0].x * pixelsPerGrid) + offsetX,
-            (door.bounds[0].y * pixelsPerGrid) + offsetY,
-            (door.bounds[1].x * pixelsPerGrid) + offsetX,
-            (door.bounds[1].y * pixelsPerGrid) + offsetY
+            ((door.bounds[0].x - originX) * pixelsPerGrid) + offsetX,
+            ((door.bounds[0].y - originY) * pixelsPerGrid) + offsetY,
+            ((door.bounds[1].x - originX) * pixelsPerGrid) + offsetX,
+            ((door.bounds[1].y - originY) * pixelsPerGrid) + offsetY
           ],
           door: door.closed ? 1 : 0, // If openable windows - all portals should be doors, otherwise, only portals that "block light" should be openable (doors)
           sense: (door.closed) ? CONST.WALL_SENSE_TYPES.NORMAL : CONST.WALL_SENSE_TYPES.NONE
@@ -382,19 +459,20 @@ class DDImporter extends FormApplication {
       if (DDImporter.isWithinMap(file, light.position)) {
         try {
           let newLight = new AmbientLightDocument({
-            t: "l",
             x: ((light.position.x - file.resolution.map_origin.x) * pixelsPerGrid) + offsetX,
             y: ((light.position.y - file.resolution.map_origin.y) * pixelsPerGrid) + offsetY,
             rotation: 0,
-            dim: light.range * (game.system.gridDistance || 1),
-            bright: (light.range * (game.system.gridDistance || 1)) / 2,
-          angle: 360,
-          tintColor: "#" + light.color.substring(2),
-          tintAlpha: (0.05 * light.intensity)
-        })
-        lights.push(newLight);
+            config: {
+              angle: 360,
+              color: "#" + light.color.substring(2),
+              dim: light.range * (game.system.grid.distance || 1) * 2,
+              bright: (light.range * (game.system.grid.distance || 1)) / 2,
+              alpha: (0.05 * light.intensity)
+            }
+          })
+          lights.push(newLight);
         }
-        catch(e)
+        catch (e)
         {
           console.error("Could not create AmbientLight Document: " + e)
         }

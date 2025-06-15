@@ -1,23 +1,33 @@
 {
-  "name": "foundry-vtt-module-maker",
   "title": "Foundry VTT Module Maker",
   "description": "Imports scene elements from dd2vtt files and creates a module out of them.",
-  "version": "1.0.0",
+  "version": "1.1",
   "authors": [
-    {"name": "miki4920", "id": "miki4920"},
-    {"name": "Moo Man", "id": "Moo Man"},
-    {"name": "m42e", "id": "m42e"},
-    {"name": "jacquie", "id": "jacquie"}
+    {
+      "name": "miki4920",
+      "flags": {}
+    },
+    {
+      "name": "Moo Man",
+      "flags": {}
+    },
+    {
+      "name": "m42e",
+      "flags": {}
+    },
+    {
+      "name": "jacquie",
+      "flags": {}
+    }
   ],
-  "scripts": [
+  "esmodules": [
     "ddimport.js"
   ],
-  "minimumCoreVersion" : 10,
   "compatibility": {
     "minimum": "10",
-    "verified": "11",
-    "maximum": "11"
+    "verified": "12"
   },
   "manifest": "https://github.com/miki4920/foundry-vtt-module-maker/releases/latest/download/module.json",
-  "download": "https://github.com/miki4920/foundry-vtt-module-maker/releases/latest/download/module.zip"
+  "download": "https://github.com/miki4920/foundry-vtt-module-maker/releases/download/1.1/module.zip",
+  "id": "foundry-vtt-module-maker"
 }
